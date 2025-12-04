@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { BookOpen, Search, SlidersHorizontal, X, User, Tag } from "lucide-react";
@@ -33,6 +33,23 @@ import { useCart } from "@/context/cart-context";
 import { useWishlist } from "@/context/wishlist-context";
 import { Book } from "@/types/book";
 import { Heart } from "lucide-react";
+
+// Loading fallback component
+function SearchLoading() {
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="fixed inset-0 pattern-dots opacity-30 pointer-events-none" />
+      <Header />
+      <div className="container mx-auto px-4 py-16">
+        <div className="flex flex-col items-center justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gold mb-4"></div>
+          <p className="text-muted-foreground">Loading search results...</p>
+        </div>
+      </div>
+      <Footer />
+    </div>
+  );
+}
 
 // Search Result Card
 function SearchResultCard({
@@ -140,7 +157,7 @@ function SearchResultCard({
   );
 }
 
-export default function SearchPage() {
+function SearchContent() {
   const searchParams = useSearchParams();
   const query = searchParams.get("q") || "";
   const authorParam = searchParams.get("author") || "";
@@ -611,6 +628,15 @@ export default function SearchPage() {
       {/* Footer */}
       <Footer />
     </div>
+  );
+}
+
+// Main export wrapped in Suspense
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<SearchLoading />}>
+      <SearchContent />
+    </Suspense>
   );
 }
 
