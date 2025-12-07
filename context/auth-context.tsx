@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 
 export interface User {
   id: string;
@@ -15,75 +15,61 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Mock users database (in real app, this would be MongoDB)
-const MOCK_USERS_KEY = "biblion-users";
-const AUTH_TOKEN_KEY = "biblion-auth-token";
-
-interface StoredUser extends User {
-  password: string;
-}
-
-function getStoredUsers(): StoredUser[] {
-  if (typeof window === "undefined") return [];
-  const stored = localStorage.getItem(MOCK_USERS_KEY);
-  return stored ? JSON.parse(stored) : [];
-}
-
-function saveStoredUsers(users: StoredUser[]) {
-  if (typeof window !== "undefined") {
-    localStorage.setItem(MOCK_USERS_KEY, JSON.stringify(users));
-  }
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing session on mount
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem(AUTH_TOKEN_KEY);
-      if (token) {
-        try {
-          const userData = JSON.parse(atob(token));
-          setUser(userData);
-        } catch (e) {
-          localStorage.removeItem(AUTH_TOKEN_KEY);
-        }
+  // Fetch current user on mount
+  const refreshUser = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/me");
+      
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      } else {
+        setUser(null);
       }
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      setUser(null);
+    } finally {
       setIsLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    refreshUser();
+  }, [refreshUser]);
+
   const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-    const users = getStoredUsers();
-    const foundUser = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+      const data = await response.json();
 
-    if (!foundUser) {
-      return { success: false, error: "No account found with this email" };
+      if (response.ok && data.success) {
+        setUser(data.user);
+        return { success: true };
+      } else {
+        return { success: false, error: data.error || "Login failed" };
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      return { success: false, error: "An error occurred during login" };
     }
-
-    // In real app, use bcrypt to compare passwords
-    if (foundUser.password !== password) {
-      return { success: false, error: "Incorrect password" };
-    }
-
-    const { password: _, ...userWithoutPassword } = foundUser;
-    
-    // Create a simple token (in real app, use jose JWT)
-    const token = btoa(JSON.stringify(userWithoutPassword));
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    setUser(userWithoutPassword);
-
-    return { success: true };
   };
 
   const register = async (
@@ -91,41 +77,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string
   ): Promise<{ success: boolean; error?: string }> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, email, password }),
+      });
 
-    const users = getStoredUsers();
-    
-    // Check if email already exists
-    if (users.some((u) => u.email.toLowerCase() === email.toLowerCase())) {
-      return { success: false, error: "An account with this email already exists" };
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        setUser(data.user);
+        return { success: true };
+      } else {
+        return { success: false, error: data.error || "Registration failed" };
+      }
+    } catch (error) {
+      console.error("Registration error:", error);
+      return { success: false, error: "An error occurred during registration" };
     }
-
-    // Create new user
-    const newUser: StoredUser = {
-      id: crypto.randomUUID(),
-      name,
-      email,
-      password, // In real app, hash with bcrypt
-      createdAt: new Date().toISOString(),
-    };
-
-    users.push(newUser);
-    saveStoredUsers(users);
-
-    const { password: _, ...userWithoutPassword } = newUser;
-    
-    // Auto login after registration
-    const token = btoa(JSON.stringify(userWithoutPassword));
-    localStorage.setItem(AUTH_TOKEN_KEY, token);
-    setUser(userWithoutPassword);
-
-    return { success: true };
   };
 
-  const logout = () => {
-    localStorage.removeItem(AUTH_TOKEN_KEY);
-    setUser(null);
+  const logout = async () => {
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      setUser(null);
+    }
   };
 
   return (
@@ -137,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         register,
         logout,
+        refreshUser,
       }}
     >
       {children}
@@ -151,4 +136,3 @@ export function useAuth() {
   }
   return context;
 }
-
